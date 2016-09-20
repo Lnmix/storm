@@ -39,6 +39,7 @@ public class AggregatedOffers {
   private final String hostname;
 
   private Protos.SlaveID slaveID;
+  private List<Protos.Attribute> attributes;
 
   private void initializeAvailableResources() {
     availableResources = new HashMap<>();
@@ -51,11 +52,16 @@ public class AggregatedOffers {
     initializeAvailableResources();
     this.slaveID = offer.getSlaveId();
     this.hostname = offer.getHostname();
+    this.attributes = offer.getAttributesList();
     add(offer);
   }
 
   public String getHostname() {
     return hostname;
+  }
+
+  public List<Protos.Attribute> getAttributes() {
+    return attributes;
   }
 
   public void add(Protos.Offer offer) {

@@ -51,6 +51,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.Yaml;
 import storm.mesos.resources.AggregatedOffers;
+import storm.mesos.resources.Constraints;
 import storm.mesos.resources.ReservationType;
 import storm.mesos.resources.ResourceEntries.RangeResourceEntry;
 import storm.mesos.resources.ResourceEntries.ScalarResourceEntry;
@@ -103,6 +104,7 @@ public class MesosNimbus implements INimbus {
   public static final String CONF_MASTER_FAILOVER_TIMEOUT_SECS = "mesos.master.failover.timeout.secs";
   public static final String CONF_MESOS_ALLOWED_HOSTS = "mesos.allowed.hosts";
   public static final String CONF_MESOS_DISALLOWED_HOSTS = "mesos.disallowed.hosts";
+  public static final String CONF_MESOS_CONSTRAINTS = "mesos.constraints";
   public static final String CONF_MESOS_ROLE = "mesos.framework.role";
   public static final String CONF_MESOS_PRINCIPAL = "mesos.framework.principal";
   public static final String CONF_MESOS_SECRET_FILE = "mesos.framework.secret.file";
@@ -125,6 +127,7 @@ public class MesosNimbus implements INimbus {
   volatile SchedulerDriver _driver;
   private Timer _timer = new Timer();
   private Map mesosStormConf;
+  private Constraints _constraints;
   private Set<String> _allowedHosts;
   private Set<String> _disallowedHosts;
   private Optional<Integer> _localFileServerPort;
@@ -208,6 +211,7 @@ public class MesosNimbus implements INimbus {
       throw new RuntimeException(String.format("Encountered IOException while setting up LocalState at %s : %s", localDir, exp));
     }
 
+    _constraints = new Constraints ((String) conf.get(CONF_MESOS_CONSTRAINTS));
     _allowedHosts = listIntoSet((List<String>) conf.get(CONF_MESOS_ALLOWED_HOSTS));
     _disallowedHosts = listIntoSet((List<String>) conf.get(CONF_MESOS_DISALLOWED_HOSTS));
     Boolean preferReservedResources = (Boolean) conf.get(CONF_MESOS_PREFER_RESERVED_RESOURCES);
@@ -307,7 +311,7 @@ public class MesosNimbus implements INimbus {
                 _offers.size(), (_offers.size() > 0 ? (":" + offerMapToString(_offers)) : ""));
 
       for (Protos.Offer offer : offers) {
-        if (isHostAccepted(offer.getHostname())) {
+        if (isOfferAccepted(offer)) {
           // TODO(ksoundararaj): Should we record the following as info instead of debug
           LOG.info("resourceOffers: Recording offer: {}", offerToString(offer));
           _offers.put(offer.getId(), offer);
@@ -371,6 +375,13 @@ public class MesosNimbus implements INimbus {
             (_disallowedHosts != null && !_disallowedHosts.contains(hostname));
   }
 
+  public boolean isOfferAccepted(Protos.Offer offer) {
+    if (!mesosStormConf.containsKey(CONF_MESOS_CONSTRAINTS)) {
+      return isHostAccepted(offer.getHostname());
+    } else {
+      return _constraints.meetsAllConstraints(offer);
+    }
+  }
 
   @Override
   public Collection<WorkerSlot> allSlotsAvailableForScheduling(
@@ -579,6 +590,14 @@ public class MesosNimbus implements INimbus {
         Long workerPort = Long.valueOf(slot.getPort());
 
         AggregatedOffers aggregatedOffers = aggregatedOffersPerNode.get(slot.getNodeId());
+        Map topologyConf = topologyDetails.getConf();
+        if (topologyConf.containsKey("topology." + CONF_MESOS_CONSTRAINTS)) {
+          Constraints constraints = new Constraints((String) topologyConf.get("topology." + CONF_MESOS_CONSTRAINTS));
+          if (!constraints.meetsAllConstraints(aggregatedOffers)) {
+            continue;
+          }
+        }
+
         String workerPrefix = "";
         if (mesosStormConf.containsKey(MesosCommon.WORKER_NAME_PREFIX)) {
           workerPrefix = MesosCommon.getWorkerPrefix(mesosStormConf, topologyDetails);
