@@ -118,6 +118,7 @@ public class MesosNimbus implements INimbus {
   public static final String CONF_MESOS_PREFER_RESERVED_RESOURCES = "mesos.prefer.reserved.resources";
   public static final String CONF_MESOS_CONTAINER_DOCKER_IMAGE = "mesos.container.docker.image";
   public static final String CONF_MESOS_SUPERVISOR_STORM_LOCAL_DIR = "mesos.supervisor.storm.local.dir";
+  public static final String CONF_TOPOLOGY_MESOS_CONSTRAINTS = "topology.mesos.constraints";
   public static final String FRAMEWORK_ID = "FRAMEWORK_ID";
   private static final Logger LOG = LoggerFactory.getLogger(MesosNimbus.class);
   private final Object _offersLock = new Object();
@@ -376,10 +377,10 @@ public class MesosNimbus implements INimbus {
   }
 
   public boolean isOfferAccepted(Protos.Offer offer) {
-    if (!mesosStormConf.containsKey(CONF_MESOS_CONSTRAINTS)) {
-      return isHostAccepted(offer.getHostname());
-    } else {
+    if (_constraints.size() > 0) {
       return _constraints.meetsAllConstraints(offer);
+    } else {
+      return isHostAccepted(offer.getHostname());
     }
   }
 
@@ -591,9 +592,10 @@ public class MesosNimbus implements INimbus {
 
         AggregatedOffers aggregatedOffers = aggregatedOffersPerNode.get(slot.getNodeId());
         Map topologyConf = topologyDetails.getConf();
-        if (topologyConf.containsKey("topology." + CONF_MESOS_CONSTRAINTS)) {
-          Constraints constraints = new Constraints((String) topologyConf.get("topology." + CONF_MESOS_CONSTRAINTS));
+        if (topologyConf.containsKey(CONF_TOPOLOGY_MESOS_CONSTRAINTS)) {
+          Constraints constraints = new Constraints((String) topologyConf.get(CONF_TOPOLOGY_MESOS_CONSTRAINTS));
           if (!constraints.meetsAllConstraints(aggregatedOffers)) {
+            LOG.info(String.format("Node %s incompatible with topology %s", workerHost, topologyId));
             continue;
           }
         }
